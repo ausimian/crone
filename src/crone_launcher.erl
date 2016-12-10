@@ -36,6 +36,7 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
+-spec start_link(Action :: mfa()) -> {ok, pid()} | ignore | {error, term()}.
 start_link(Action) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, Action, []).
 
@@ -62,7 +63,3 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================

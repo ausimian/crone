@@ -4,14 +4,14 @@
 %%% @doc
 %%%
 %%% @end
-%%% Created :  6 Dec 2016 by Nick Gunn <nick@ausimian.net>
+%%% Created : 10 Dec 2016 by Nick Gunn <nick@ausimian.net>
 %%%-------------------------------------------------------------------
--module(crone_timer).
+-module(crone_startup).
 
 -behaviour(gen_server).
 
 %% API
--export([start_link/1]).
+-export([start_link/0]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -23,18 +23,7 @@
 
 -define(SERVER, ?MODULE).
 
--define(INTERVAL, 1000).
-
--type second()  :: calendar:minute() | 'any'.
--type minute()  :: calendar:minute() | 'any'.
--type hour()    :: calendar:hour()   | 'any'.
--type day()     :: calendar:day()    | 'any'.
--type month()   :: calendar:month()  | 'any'.
-
--type time_pattern() :: {second(), minute(), hour(), day(), month()}.
--type cron_entry()   :: {time_pattern(), mfa()}.
-
--record(state, { crontab :: [cron_entry()] }).
+-record(state, {}).
 
 %%%===================================================================
 %%% API
@@ -47,8 +36,8 @@
 %% @spec start_link() -> {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start_link(CronTab) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, CronTab, []).
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -65,12 +54,9 @@ start_link(CronTab) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init(CronTab) ->
+init([]) ->
     process_flag(trap_exit, true),
-    case is_valid(CronTab) of
-        true  -> {ok, #state{ crontab = CronTab }, ?INTERVAL};
-        false -> {stop, invalid}
-    end.
+    {ok, #state{}, 0}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -87,8 +73,7 @@ init(CronTab) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+    {reply, unexpected, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -113,11 +98,14 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info(timeout, #state{crontab = CronTab} = State) ->
-    check(CronTab),
-    {noreply, State, ?INTERVAL};
+handle_info(timeout, State) ->
+    Default = {crone, get_crontab, []},
+    {M,F,A} = application:get_env(crone, crontab_provider, Default),
+    {ok, CronTab} = apply(M, F, A),
+    ok = crone:update(CronTab),
+    {stop, normal, State};
 handle_info(_Info, State) ->
-    {noreply, State, ?INTERVAL}.
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -147,53 +135,3 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-check(CronTab) ->
-    Now = erlang:timestamp(),
-    {{_, Mo, Day}, {Ho, Mi, Se}} = calendar:now_to_local_time(Now),
-    check(CronTab, {Se, Mi, Ho, Day, Mo}).
-
-check([], _) ->
-    ok;
-check([{Pattern, Mfa}|Rest], Time) ->
-    case is_match(Pattern, Time) of
-        true  -> on_match(Pattern, Mfa);
-        false -> ok
-    end,
-    check(Rest, Time).
-
-is_match({Pse, Pmi, Pho, Pday, Pmo}, {Se, Mi, Ho, Day, Mo}) ->
-    is_match(Pse, Se)   andalso
-    is_match(Pmi, Mi)   andalso
-    is_match(Pho, Ho)   andalso
-    is_match(Pday, Day) andalso
-    is_match(Pmo, Mo);
-is_match([Pattern|Rest], Val) ->
-    is_match(Pattern, Val) orelse is_match(Rest, Val);
-is_match(Pattern, Val) ->
-    Pattern =:= any orelse Pattern =:= Val.
-
-on_match(_Pattern, Action) ->
-    supervisor:start_child(crone_launcher_sup, [Action]).
-
-is_valid([]) ->
-    true;
-is_valid([{{Se,Mi,Hr,Day,Mo},_}|Rest]) ->
-    is_valid_second(Se) andalso
-    is_valid_minute(Mi) andalso
-    is_valid_hour(Hr)   andalso
-    is_valid_day(Day)   andalso
-    is_valid_month(Mo)  andalso
-    is_valid(Rest).
-
-is_valid_second(V) -> is_valid_part(V, 0, 59).
-is_valid_minute(V) -> is_valid_part(V, 0, 59).
-is_valid_hour(V)   -> is_valid_part(V, 1, 12).
-is_valid_day(V)    -> is_valid_part(V, 1, 31).
-is_valid_month(V)  -> is_valid_part(V, 1, 12).
-
-is_valid_part([Part|Rest], Min, Max) ->
-    is_valid_part(Part, Min, Max) orelse is_valid_part(Rest, Min, Max);
-is_valid_part([], _, _) ->
-    false;
-is_valid_part(Part, Min, Max) ->
-    Part =:= any orelse (Part >= Min andalso Part =< Max).

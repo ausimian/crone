@@ -1,7 +1,7 @@
 crone
 =====
 
-An OTP application
+Cron for Erlang.
 
 Build
 -----

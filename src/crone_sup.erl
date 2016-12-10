@@ -61,16 +61,16 @@ init([]) ->
                     shutdown => infinity,
                     type     => supervisor},
 
-    CronTab = application:get_env(crone, crontab, []),
+    Scheduler   = #{id       => timer,
+                    start    => {crone_scheduler, start_link, []},
+                    restart  => permanent,
+                    shutdown => 5000,
+                    type     => worker},
 
-    Timer = #{id       => timer,
-              start    => {crone_timer, start_link, [CronTab]},
-              restart  => permanent,
-              shutdown => 5000,
-              type     => worker},
+    Initializer = #{id       => initializer,
+                    start    => {crone_startup, start_link, []},
+                    restart  => temporary,
+                    shutdown => 5000,
+                    type     => worker},
 
-    {ok, {SupFlags, [LauncherSup, Timer]}}.
-
-%%%===================================================================
-%%% Internal functions
-%%%===================================================================
+    {ok, {SupFlags, [LauncherSup, Scheduler, Initializer]}}.
