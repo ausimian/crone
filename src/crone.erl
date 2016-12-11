@@ -2,7 +2,7 @@
 %%% @author Nick Gunn <nick@ausimian.net>
 %%% @copyright (C) 2016, Nick Gunn
 %%% @doc
-%%%
+%%% This module provides the (limited) public API of the application.
 %%% @end
 %%% Created : 10 Dec 2016 by Nick Gunn <nick@ausimian.net>
 %%%-------------------------------------------------------------------
@@ -31,8 +31,9 @@
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Return the configuration held in the crontab environment variable
-%% within the crone application.
+%% Return the value held in the crontab environment variable
+%% of the crone application configuration.
+%% If no such value is specified, it defaults to the empty list.
 %% @end
 %%--------------------------------------------------------------------
 -spec get_crontab() -> {ok, term()}.
@@ -42,7 +43,8 @@ get_crontab() ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Update the active crontab configuration.
+%% Update the active crontab configuration. The new configuration
+%% replaces the old one entirely.
 %% @end
 %%--------------------------------------------------------------------
 -spec update(CronTab :: crontab()) -> ok.
