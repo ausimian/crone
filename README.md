@@ -35,9 +35,24 @@ Month     |             1 .. 12 |
 
 Additionally:
 
-1. Any component may have the wildcard atom `any` which always matches.
-2. Any component may be expressed as a list in which case the elements are considered alternatives.
+- Any component may have the wildcard atom `any` which always matches.
+- Any component may be expressed as a list in which case the elements are considered alternatives.
 
-## Build
+## CronTab Sources
+When the crone application is started it, by default, calls `crone:get_crontab/0` to retrieve the configuration. If an alternative source of configuration is required, override the `crontab_provider` environment variable, e.g.
+
+```erlang
+[{crone, 
+  [{crontab_provider, {mymodule, getcrontab, []}}]}]
+```
+and ensure that the specified module exists and exports the required function. The function should return a tuple of the type `{ok, crone:crontab()}`.
+
+### Dynamic Update
+The configuration can be replaced dynamically by calling `crone:update/1`. The argument is a term of type `crone:crontab`. Providing an invalid configuration causes the caller to crash.
+
+
+## Build and test
 
     $ rebar3 compile
+    $ rebar3 proper
+    
