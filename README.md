@@ -2,8 +2,7 @@
 
 Cron for Erlang.
 
-crone is a simple application to schedule repeatable tasks within the Erlang
-VM. It is modelled on the Unix utility, `cron`.
+crone is a simple application to schedule repeatable tasks within the Erlang. Times are matched against the _local_ time in the VM as returned by `calendar:now_to_local_time/1`.
 
 It has no application dependencies other than `kernel` and `stdlib`.
 
