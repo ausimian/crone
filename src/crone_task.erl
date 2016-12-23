@@ -6,7 +6,7 @@
 %%% @end
 %%% Created :  6 Dec 2016 by Nick Gunn <nick@ausimian.net>
 %%%-------------------------------------------------------------------
--module(crone_launcher).
+-module(crone_task).
 
 -behaviour(gen_server).
 

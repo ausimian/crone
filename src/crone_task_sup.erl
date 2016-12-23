@@ -6,7 +6,7 @@
 %%% @end
 %%% Created :  6 Dec 2016 by Nick Gunn <nick@ausimian.net>
 %%%-------------------------------------------------------------------
--module(crone_launcher_sup).
+-module(crone_task_sup).
 
 -behaviour(supervisor).
 
@@ -56,7 +56,7 @@ init([]) ->
                  period    => 5},
 
     Launcher = #{id       => launcher,
-                 start    => {crone_launcher, start_link, []},
+                 start    => {crone_task, start_link, []},
                  restart  => temporary,
                  shutdown => brutal_kill,
                  type     => worker},

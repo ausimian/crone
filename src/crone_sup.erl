@@ -55,22 +55,22 @@ init([]) ->
                  intensity => 1,
                  period    => 5},
 
-    LauncherSup = #{id       => crone_launcher_sup,
-                    start    => {crone_launcher_sup, start_link, []},
-                    restart  => permanent,
-                    shutdown => infinity,
-                    type     => supervisor},
+    TaskSup = #{id       => crone_task_sup,
+                start    => {crone_task_sup, start_link, []},
+                restart  => permanent,
+                shutdown => infinity,
+                type     => supervisor},
 
-    Scheduler   = #{id       => timer,
-                    start    => {crone_scheduler, start_link, []},
-                    restart  => permanent,
-                    shutdown => 5000,
-                    type     => worker},
+    Server  = #{id       => crone_server,
+                start    => {crone_server, start_link, []},
+                restart  => permanent,
+                shutdown => 5000,
+                type     => worker},
 
-    Initializer = #{id       => initializer,
-                    start    => {crone_startup, start_link, []},
-                    restart  => temporary,
-                    shutdown => 5000,
-                    type     => worker},
+    Timer   = #{id       => crone_timer,
+                start    => {crone_timer, start_link, []},
+                restart  => permanent,
+                shutdown => 5000,
+                type     => worker},
 
-    {ok, {SupFlags, [LauncherSup, Scheduler, Initializer]}}.
+    {ok, {SupFlags, [TaskSup, Server, Timer]}}.

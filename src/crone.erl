@@ -8,22 +8,43 @@
 %%%-------------------------------------------------------------------
 -module(crone).
 
--type time()    :: {calender:minute(),
-                    calendar:hour(),
-                    calendar:day(),
-                    calendar:month()}.
--type minute()  :: calendar:minute() | 'any'.
--type hour()    :: calendar:hour()   | 'any'.
--type day()     :: calendar:day()    | 'any'.
--type month()   :: calendar:month()  | 'any'.
--type time_pattern() :: {minute(), hour(), day(), month()}.
--type cron_entry()   :: {time_pattern(), mfa()}.
--type crontab()      :: [cron_entry()].
+-type minute()       :: 0..59.
+-type hour()         :: 0..23.
+-type day()          :: -31..-1 | 1..31.
+-type dayofweek()    :: -7..-1  | 1..7.
+-type month()        :: 1..12.
+-type year()         :: 1970..10000.
+
+-type pattern() :: {minute()    | list(minute())    | any,
+                    hour()      | list(hour())      | any,
+                    day()       | list(day())       | any,
+                    dayofweek() | list(dayofweek()) | any,
+                    month()     | list(month())     | any}.
+-type time()    :: {minute(),
+                    hour(),
+                    day(),
+                    dayofweek(),
+                    month(),
+                    year()}.
+
+-type task()    :: {atom(), atom(), [any()]}.
+-type entry()   :: {pattern(), task()}.
+-type crontab() :: [entry()].
 
 %% API
--export_type([crontab/0, time/0]).
+-export_type([minute/0,
+              hour/0,
+              day/0,
+              dayofweek/0,
+              month/0,
+              pattern/0,
+              time/0,
+              entry/0,
+              crontab/0]).
+
 -export([get_crontab/0,
-         update/1]).
+         update/1,
+         check_time/1]).
 
 %%%===================================================================
 %%% API
@@ -49,4 +70,14 @@ get_crontab() ->
 %%--------------------------------------------------------------------
 -spec update(CronTab :: crontab()) -> ok.
 update(CronTab) ->
-    crone_scheduler:update(CronTab).
+    crone_server:update(CronTab).
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Check the time and launch any pending tasks.
+%% @end
+%%--------------------------------------------------------------------
+-spec check_time(Time :: time()) -> ok.
+check_time(Time) ->
+    crone_server:check_time(Time).

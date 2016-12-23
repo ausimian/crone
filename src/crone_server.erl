@@ -6,13 +6,18 @@
 %%% @end
 %%% Created :  6 Dec 2016 by Nick Gunn <nick@ausimian.net>
 %%%-------------------------------------------------------------------
--module(crone_scheduler).
+-module(crone_server).
 
 -behaviour(gen_server).
 
+-ifdef(TEST).
+-compile(export_all).
+-endif.
+
 %% API
 -export([start_link/0,
-         update/1]).
+         update/1,
+         check_time/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -23,8 +28,6 @@
          code_change/3]).
 
 -define(SERVER, ?MODULE).
-
--define(INTERVAL, 60000).
 
 -record(state, { crontab :: crone:crontab() }).
 
@@ -44,16 +47,23 @@ start_link() ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Update the crontab configuration.
+%% Update the crontab configuration. Will crash if the supplied
+%% configuration is invalid.
 %% @end
 %%--------------------------------------------------------------------
--spec update(CronTab :: crone:crontab()) -> ok.
 update(CronTab) ->
-    case is_valid_crontab(CronTab) of
-        true  -> gen_server:call(?SERVER, {update, CronTab});
-        false -> {error, invalid}
-    end.
+    true = is_valid(CronTab),
+    gen_server:call(?SERVER, {update, CronTab}).
 
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Launch any tasks at the specified time.
+%% @end
+%%--------------------------------------------------------------------
+-spec check_time(Time :: crone:time()) -> ok.
+check_time(Time) ->
+    gen_server:cast(?SERVER, {check_time, Time}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -72,7 +82,6 @@ update(CronTab) ->
 %%--------------------------------------------------------------------
 init(_) ->
     process_flag(trap_exit, true),
-    timer:send_interval(?INTERVAL, timeout),
     {ok, #state{crontab = []}}.
 
 %%--------------------------------------------------------------------
@@ -104,6 +113,9 @@ handle_call(_Request, _From, State) ->
 %%                                  {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_cast({check_time, Time}, #state{crontab = CronTab} = State) ->
+    check(Time, CronTab),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -117,11 +129,8 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info(timeout, #state{crontab = CronTab} = State) ->
-    check(CronTab),
-    {noreply, State};
 handle_info(_Info, State) ->
-    {noreply, State, ?INTERVAL}.
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -159,27 +168,11 @@ code_change(_OldVsn, State, _Extra) ->
 %% matching entries.
 %% @end
 %%--------------------------------------------------------------------
--spec check(CronTab :: crone:crontab()) -> ok.
-check(CronTab) ->
-    Now = erlang:timestamp(),
-    {{_, Mo, Day}, {Ho, Mi, _}} = calendar:now_to_local_time(Now),
-    check(CronTab, {Mi, Ho, Day, Mo}).
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Tail-recursive implementation of check/1.
-%% @end
-%%--------------------------------------------------------------------
--spec check(CronTab :: crone:crontab(), Time :: crone:time()) -> ok.
-check([], _) ->
-    ok;
-check([{Pattern, Mfa}|Rest], Time) ->
-    case is_match(Pattern, Time) of
-        true  -> on_match(Pattern, Mfa);
-        false -> ok
-    end,
-    check(Rest, Time).
+-spec check(Time :: crone:time(), CronTab :: crone:crontab()) -> ok.
+check(Time, CronTab) ->
+    Tasks = [T || {P, T} <- CronTab, is_match(P, Time)],
+    lists:foreach(fun launch/1, Tasks),
+    ok.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -187,87 +180,87 @@ check([{Pattern, Mfa}|Rest], Time) ->
 %% Returns true if the pattern matches the time, false otherwise.
 %% @end
 %%--------------------------------------------------------------------
--spec is_match(crone:time_pattern(), crone:time()) -> boolean().
-is_match({Pmi, Pho, Pday, Pmo}, {Mi, Ho, Day, Mo}) ->
-    is_part_match(Pmi, Mi)   andalso
-    is_part_match(Pho, Ho)   andalso
-    is_part_match(Pday, Day) andalso
-    is_part_match(Pmo, Mo).
-is_part_match([Pattern|Rest], Val) ->
-    is_part_match(Pattern, Val) orelse is_part_match(Rest, Val);
-is_part_match(Pattern, Val) ->
+-spec is_match(crone:pattern(), crone:time()) -> boolean().
+is_match({Pmi, Pho, Pdotm, Pdotw, Pmo}, {Mi, Ho, Dotm, Dotw, Mo, Yr}) ->
+    is_part_match(minute, Pmi, Mi) andalso
+    is_part_match(hour, Pho, Ho) andalso
+    is_part_match({day, Mo, Yr}, Pdotm, Dotm) andalso
+    is_part_match({dayofweek, Dotm, Mo, Yr}, Pdotw, Dotw) andalso
+    is_part_match(month, Pmo, Mo).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Check whether an individual pattern element matches its corresponding
+%% value in the time.
+%% @end
+%%--------------------------------------------------------------------
+is_part_match(Part, [Pattern|Rest], Val) ->
+    is_part_match(Part, Pattern, Val) orelse is_part_match(Part, Rest, Val);
+is_part_match({day, Mo, Yr}, Pattern, Val)
+  when is_integer(Pattern) andalso Pattern < 0 ->
+    LastDay = calendar:last_day_of_the_month(Yr, Mo),
+    Pattern + LastDay + 1 =:= Val;
+is_part_match({dayofweek, Day, Mo, Yr}, Pattern, Val)
+  when is_integer(Pattern) andalso Pattern < 0 ->
+    LastDay = calendar:last_day_of_the_month(Yr, Mo),
+    (LastDay - Day) < 7 andalso abs(Pattern) =:= Val;
+is_part_match(_, Pattern, Val) ->
     Pattern =:= any orelse Pattern =:= Val.
 
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% Launch the action.
+%% Launch the action. A temporary process is used to launch the task.
 %% @end
 %%--------------------------------------------------------------------
--spec on_match(crone:time_pattern(), mfa()) -> ok.
-on_match(_Pattern, Action) ->
-    {ok, _} = supervisor:start_child(crone_launcher_sup, [Action]),
+-spec launch(Mfa :: crone:task()) -> ok.
+launch(Mfa) ->
+    supervisor:start_child(crone_task_sup, [Mfa]),
     ok.
 
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% True if the whole list of crontab entries is valud, false otherwise.
+%% Check that the crontab is valid.
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid_crontab(crone:crontab()) -> boolean().
-is_valid_crontab(CronTab) ->
+-spec is_valid(CronTab :: crone:crontab()) -> boolean().
+is_valid(CronTab) ->
     lists:all(fun is_valid_entry/1, CronTab).
 
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% True of the crontab entry is valid, false otherwise.
+%% Check that the crontab entry is valid.
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid_entry({crone:time_pattern(), mfa()}) -> boolean().
-is_valid_entry({Pattern, Action}) ->
-    is_valid_pattern(Pattern) andalso is_valid_action(Action);
-is_valid_entry(_) ->
-    false.
+-spec is_valid_entry(Entry :: crone:entry()) -> boolean().
+is_valid_entry({{Mi, Ho, Dm, Dw, Mn}, _}) ->
+    is_valid_elem(mins, Mi) andalso
+    is_valid_elem(hour, Ho) andalso
+    is_valid_elem(dotm, Dm) andalso
+    is_valid_elem(dotw, Dw) andalso
+    is_valid_elem(month, Mn).
 
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% True if the time pattern is valid, false otherwise.
+%% Check that the element is either a valid value or a list of valid
+%% of valid values.
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid_pattern(crone:time_pattern()) -> boolean().
-is_valid_pattern({Mi,Hr,Day,Mo}) ->
-    is_valid_part(Mi, 0, 59) andalso
-    is_valid_part(Hr, 0, 23) andalso
-    is_valid_part(Day, 1, 7) andalso
-    is_valid_part(Mo, 1, 12);
-is_valid_pattern(_) ->
-    false.
+is_valid_elem(P, L) when is_list(L) -> lists:all(fun (V) -> is_valid_value(P,V) end, L);
+is_valid_elem(P, V) -> is_valid_value(P, V).
 
 %%--------------------------------------------------------------------
 %% @private
 %% @doc
-%% True if the pattern part is valid, false otherwise.
+%% Check that the value is within a valid range.
 %% @end
 %%--------------------------------------------------------------------
--spec is_valid_part(any | integer(), integer(), integer()) -> boolean().
-is_valid_part(Val, Min, Max)
-  when is_integer(Min) andalso is_integer(Max) ->
-    Val =:= any orelse
-   (is_integer(Val) andalso Val >= Min andalso Val =< Max);
-is_valid_part(_, _, _) ->
-    false.
-
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% True if the action is a valid MFA, false otherwise.
-%% @end
-%%--------------------------------------------------------------------
--spec is_valid_action(mfa()) -> boolean().
-is_valid_action({M, F, A}) ->
-  is_atom(M) andalso is_atom(F) andalso is_list(A);
-is_valid_action(_) ->
-    false.
+is_valid_value(_, any) -> true;
+is_valid_value(mins, V)  -> V >= 0   andalso V =< 59;
+is_valid_value(hour, V)  -> V >= 0   andalso V =< 23;
+is_valid_value(dotm, V)  -> V >= -31 andalso V =< 31 andalso V =/= 0;
+is_valid_value(dotw, V)  -> V >= -7  andalso V =< 7  andalso V =/= 0;
+is_valid_value(month, V) -> V >= 1   andalso V =< 12.
